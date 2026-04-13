@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>画面プロトタイプビルダー</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Noto Sans JP', system-ui, sans-serif; background: #f1f5f9; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+#json-editor::-webkit-scrollbar { width: 6px; }
+#json-editor::-webkit-scrollbar-track { background: #0a1018; }
+#json-editor::-webkit-scrollbar-thumb { background: #2a3a50; border-radius: 3px; }
+#preview-body::-webkit-scrollbar { width: 6px; }
+#preview-body::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+#modal-code::-webkit-scrollbar { width: 6px; }
+#modal-code::-webkit-scrollbar-thumb { background: #2a3a50; border-radius: 3px; }
+.scr-btn { padding: 4px 12px; font-size: 12px; border: none; border-radius: 6px; cursor: pointer; transition: background 0.15s, color 0.15s; font-family: inherit; }
+.ltab { flex: 1; padding: 8px; font-size: 12px; border: none; cursor: pointer; background: transparent; border-bottom: 2px solid transparent; transition: all 0.15s; font-family: inherit; }
+</style>
+</head>
+<body>
+
+<div id="root" style="position:relative;height:100vh;display:flex;flex-direction:column;font-size:13px;font-family:'Noto Sans JP',system-ui,sans-serif;">
+
+  <!-- Top Bar -->
+  <div style="display:flex;align-items:center;gap:10px;padding:0 14px;height:44px;background:#1c2a3a;flex-shrink:0;">
+    <div style="display:flex;align-items:center;gap:7px;">
+      <div style="width:22px;height:22px;border-radius:5px;background:#2563eb;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:white;flex-shrink:0;">P</div>
+      <span style="color:white;font-size:14px;font-weight:500;white-space:nowrap;">画面プロトタイプビルダー</span>
+    </div>
+    <div style="width:1px;height:18px;background:#2a3a50;flex-shrink:0;"></div>
+    <div id="screen-tabs" style="display:flex;gap:4px;overflow-x:auto;"></div>
+    <div style="margin-left:auto;display:flex;gap:8px;flex-shrink:0;">
+      <button onclick="handleExportJson()" style="padding:5px 12px;font-size:12px;background:transparent;border:1px solid #3a4a60;color:#94a3b8;border-radius:6px;cursor:pointer;font-family:inherit;">↓ JSON</button>
+      <button onclick="handleExportHtml()" style="padding:5px 12px;font-size:12px;background:#059669;border:none;color:white;border-radius:6px;cursor:pointer;font-weight:500;font-family:inherit;">↓ HTML出力</button>
+    </div>
+  </div>
+
+  <!-- Split Pane -->
+  <div style="flex:1;display:flex;overflow:hidden;">
+
+    <!-- Left: Editor -->
+    <div style="width:380px;display:flex;flex-direction:column;background:#0f1722;flex-shrink:0;border-right:1px solid #1e2d3d;">
+      <div style="display:flex;background:#141c26;flex-shrink:0;border-bottom:1px solid #1e2d3d;">
+        <button id="ltab-json" class="ltab" onclick="switchLeftTab('json')" style="color:white;border-bottom:2px solid #2563eb;">📄 JSON</button>
+        <button id="ltab-data" class="ltab" onclick="switchLeftTab('data')" style="color:#64748b;">📊 データ</button>
+        <button id="ltab-ai"   class="ltab" onclick="switchLeftTab('ai')"   style="color:#64748b;">✨ AI生成</button>
+      </div>
+
+      <!-- Data Definition Panel -->
+      <div id="lpanel-data" style="display:none;flex:1;flex-direction:column;overflow:hidden;">
+        <div style="padding:7px 10px;font-size:10px;color:#475569;border-bottom:1px solid #1e2d3d;flex-shrink:0;letter-spacing:0.06em;font-weight:500;text-transform:uppercase;">データフィールド定義 — 画面との対応</div>
+        <div id="data-def-body" style="flex:1;overflow-y:auto;"></div>
+      </div>
+
+      <!-- JSON Panel -->
+      <div id="lpanel-json" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+        <textarea id="json-editor" oninput="handleJsonChange(this.value)" spellcheck="false"
+          style="flex:1;background:transparent;color:#4ade80;font-family:'Courier New',monospace;font-size:11px;padding:12px;border:none;resize:none;outline:none;overflow-y:auto;line-height:1.65;"></textarea>
+        <div id="json-status" style="padding:5px 12px;font-size:11px;border-top:1px solid #1e2d3d;flex-shrink:0;color:#22c55e;font-family:monospace;">✓ 有効なJSON</div>
+      </div>
+
+      <!-- AI Panel -->
+      <div id="lpanel-ai" style="display:none;flex:1;flex-direction:column;padding:14px;gap:10px;overflow-y:auto;">
+        <!-- API Key -->
+        <div style="background:#141c26;border:1px solid #1e2d3d;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;">
+          <label style="color:#94a3b8;font-size:11px;font-weight:500;letter-spacing:0.05em;">ANTHROPIC API キー</label>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input id="api-key-input" type="password" placeholder="sk-ant-api03-..." oninput="saveApiKey()"
+              style="flex:1;background:#0f1722;color:#e2e8f0;border:1px solid #2a3a50;border-radius:6px;padding:6px 10px;font-size:12px;outline:none;font-family:'Courier New',monospace;min-width:0;">
+            <button onclick="toggleApiKeyVisibility()" id="key-vis-btn"
+              style="padding:5px 10px;font-size:11px;background:transparent;border:1px solid #2a3a50;color:#64748b;border-radius:6px;cursor:pointer;flex-shrink:0;font-family:inherit;">表示</button>
+          </div>
+          <div id="key-status" style="font-size:11px;color:#475569;">セッション中のみ保持されます。ページを閉じると消去されます。</div>
+        </div>
+        <p style="color:#94a3b8;font-size:12px;line-height:1.6;">画面の要件を日本語で入力するとAIが定義JSONを生成します。</p>
+        <textarea id="ai-prompt"
+          placeholder="例：取引先マスタの画面が欲しい。項目は取引先コード・取引先名・担当者・電話番号・メール。検索と編集画面が必要。"
+          style="background:#1e2d3d;color:#e2e8f0;border:1px solid #2a3a50;border-radius:8px;padding:10px;font-size:12px;resize:none;height:180px;outline:none;font-family:inherit;line-height:1.6;width:100%;"></textarea>
+        <div id="ai-error" style="color:#f87171;font-size:12px;display:none;line-height:1.5;"></div>
+        <button id="ai-btn" onclick="handleAiGenerate()"
+          style="padding:9px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;">✨ 画面定義を生成</button>
+        <div style="color:#475569;font-size:11px;line-height:1.6;padding:10px;background:#141c26;border-radius:6px;border:1px solid #1e2d3d;">
+          <strong style="color:#64748b;">ヒント:</strong> 管理対象・必要な検索条件・フォーム項目を具体的に書くと精度が上がります。
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Preview -->
+    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;background:#f1f5f9;">
+      <div style="display:flex;align-items:center;gap:8px;padding:7px 14px;background:white;border-bottom:1px solid #e5e7eb;flex-shrink:0;font-size:12px;color:#6b7280;">
+        <span>プレビュー</span>
+        <span style="opacity:0.4;">›</span>
+        <span id="preview-breadcrumb" style="color:#111827;font-weight:500;"></span>
+        <div style="margin-left:auto;display:flex;gap:5px;">
+          <div style="width:10px;height:10px;border-radius:50%;background:#f87171;"></div>
+          <div style="width:10px;height:10px;border-radius:50%;background:#fbbf24;"></div>
+          <div style="width:10px;height:10px;border-radius:50%;background:#4ade80;"></div>
+        </div>
+      </div>
+      <div id="preview-body" style="flex:1;overflow-y:auto;padding:16px;">
+        <div style="background:white;border-radius:8px;border:1px solid #e5e7eb;overflow:hidden;">
+          <div id="preview-appbar" style="background:#1c2a3a;color:white;padding:10px 16px;font-size:14px;font-weight:500;"></div>
+          <div id="preview-content" style="padding:16px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:50;align-items:center;justify-content:center;padding:24px;">
+    <div style="background:white;border-radius:10px;width:100%;max-width:720px;display:flex;flex-direction:column;max-height:85vh;overflow:hidden;border:1px solid #e5e7eb;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #e5e7eb;flex-shrink:0;">
+        <span id="modal-title" style="font-size:13px;font-weight:500;color:#111827;"></span>
+        <div style="display:flex;gap:8px;">
+          <button id="modal-copy-btn" onclick="handleCopy()" style="padding:5px 12px;font-size:12px;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500;font-family:inherit;">📋 コピー</button>
+          <button onclick="handleDownload()" style="padding:5px 12px;font-size:12px;background:#059669;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500;font-family:inherit;">↓ DL</button>
+          <button onclick="closeModal()" style="padding:5px 12px;font-size:12px;background:transparent;border:1px solid #d1d5db;color:#6b7280;border-radius:6px;cursor:pointer;font-family:inherit;">閉じる</button>
+        </div>
+      </div>
+      <pre id="modal-code" style="flex:1;overflow:auto;padding:16px;margin:0;font-family:'Courier New',monospace;font-size:11px;color:#4ade80;background:#0f1722;line-height:1.6;border-radius:0 0 10px 10px;"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+const DEFAULT_DEF = {
+  id: "item-master", title: "品目マスタ",
+
+  /* ── データフィールド定義 ── */
+  dataFields: [
+    { id: "itemCode",       label: "品目コード", type: "string",  length: 10,  value: "ITM-001"                     },
+    { id: "itemName",       label: "品名",       type: "string",  length: 100, value: "アルミフレーム A型"            },
+    { id: "description",    label: "説明",       type: "string",  length: 500, value: "アルミ製フレーム材 標準タイプ" },
+    { id: "itemCategory",   label: "品目区分",   type: "string",  length: 20,  value: "原材料"                      },
+    { id: "itemType",       label: "品種",       type: "string",  length: 20,  value: "A種"                         },
+    { id: "unitPrice",      label: "単価",       type: "number",  length: 10,  value: 4800                          },
+    { id: "registeredDate", label: "登録日",     type: "date",    length: 10,  value: "2024-04-01"                  },
+    { id: "isActive",       label: "有効",       type: "boolean", length: 1,   value: true                          }
+  ],
+
+  /* ── サンプルデータ（検索一覧プレビュー用） ── */
+  sampleData: [
+    { itemCode:"ITM-001", itemName:"アルミフレーム A型",   description:"アルミ製フレーム材 標準タイプ", itemCategory:"原材料", itemType:"A種", unitPrice:4800,  registeredDate:"2024-04-01", isActive:true  },
+    { itemCode:"ITM-002", itemName:"ステンレスボルト M8", description:"耐腐食性ボルト",               itemCategory:"副資材", itemType:"B種", unitPrice:120,   registeredDate:"2024-04-15", isActive:true  },
+    { itemCode:"ITM-003", itemName:"樹脂カバー Type-C",   description:"外装保護カバー",               itemCategory:"半製品", itemType:"C種", unitPrice:2200,  registeredDate:"2024-05-10", isActive:false },
+    { itemCode:"ITM-004", itemName:"完成品ユニット X1",   description:"組立完了品 標準仕様",          itemCategory:"製品",   itemType:"A種", unitPrice:38000, registeredDate:"2024-06-01", isActive:true  },
+    { itemCode:"ITM-005", itemName:"封止用パッキン",       description:"シリコン製シール材",           itemCategory:"副資材", itemType:"B種", unitPrice:350,   registeredDate:"2024-06-20", isActive:true  }
+  ],
+
+  /* ── 画面定義 ── */
+  screens: [
+    {
+      id: "search", label: "検索画面", type: "search",
+      searchFields: [
+        { id: "itemCode",       label: "品目コード", type: "text",     dataFieldId: "itemCode",       placeholder: "例: ITM-001" },
+        { id: "itemName",       label: "品名",       type: "text",     dataFieldId: "itemName",       placeholder: "品名を入力"   },
+        { id: "itemCategory",   label: "品目区分",   type: "select",   dataFieldId: "itemCategory",   options: ["（全て）","原材料","半製品","製品","副資材"] },
+        { id: "itemType",       label: "品種",       type: "select",   dataFieldId: "itemType",       options: ["（全て）","A種","B種","C種"] },
+        { id: "registeredFrom", label: "登録日",     type: "date",     dataFieldId: "registeredDate"  },
+        { id: "isActive",       label: "有効のみ",   type: "checkbox"                                 }
+      ],
+      grid: { columns: [
+        { id: "itemCode",       label: "品目コード", dataFieldId: "itemCode"       },
+        { id: "itemName",       label: "品名",       dataFieldId: "itemName"       },
+        { id: "itemCategory",   label: "品目区分",   dataFieldId: "itemCategory"   },
+        { id: "itemType",       label: "品種",       dataFieldId: "itemType"       },
+        { id: "unitPrice",      label: "単価",       dataFieldId: "unitPrice"      },
+        { id: "registeredDate", label: "登録日",     dataFieldId: "registeredDate" },
+        { id: "isActive",       label: "有効",       dataFieldId: "isActive"       }
+      ]},
+      pagination: { pageSize: 3, totalItems: 23 }
+    },
+    {
+      id: "detail", label: "詳細・編集画面", type: "form",
+      fields: [
+        { id: "itemCode",       label: "品目コード", type: "text",     required: true,  dataFieldId: "itemCode"                           },
+        { id: "itemName",       label: "品名",       type: "text",     required: true,  dataFieldId: "itemName"                           },
+        { id: "description",    label: "説明",       type: "textarea",                  dataFieldId: "description"                        },
+        { id: "itemCategory",   label: "品目区分",   type: "select",   required: true,  dataFieldId: "itemCategory", options: ["原材料","半製品","製品","副資材"] },
+        { id: "itemType",       label: "品種",       type: "select",   required: true,  dataFieldId: "itemType",     options: ["A種","B種","C種"] },
+        { id: "unitPrice",      label: "単価",       type: "number",   min: 0, step: 1, dataFieldId: "unitPrice",    unit: "円"            },
+        { id: "registeredDate", label: "登録日",     type: "date",     required: true,  dataFieldId: "registeredDate"                     },
+        { id: "isActive",       label: "有効",       type: "checkbox", defaultChecked: true, dataFieldId: "isActive"                      }
+      ],
+      actions: [
+        { id: "save",   label: "保存",       type: "primary"   },
+        { id: "cancel", label: "キャンセル", type: "secondary" },
+        { id: "delete", label: "削除",       type: "danger"    }
+      ]
+    }
+  ]
+};
+
+/* フォールバック用（sampleDataが未定義の場合） */
+const SAMPLE_ROWS = [
+  { itemCode:"ITM-001", itemName:"アルミフレーム A型",   description:"アルミ製フレーム材 標準タイプ", itemCategory:"原材料", itemType:"A種", unitPrice:4800,  registeredDate:"2024-04-01", isActive:true  },
+  { itemCode:"ITM-002", itemName:"ステンレスボルト M8", description:"耐腐食性ボルト",               itemCategory:"副資材", itemType:"B種", unitPrice:120,   registeredDate:"2024-04-15", isActive:true  },
+  { itemCode:"ITM-003", itemName:"樹脂カバー Type-C",   description:"外装保護カバー",               itemCategory:"半製品", itemType:"C種", unitPrice:2200,  registeredDate:"2024-05-10", isActive:false },
+  { itemCode:"ITM-004", itemName:"完成品ユニット X1",   description:"組立完了品 標準仕様",          itemCategory:"製品",   itemType:"A種", unitPrice:38000, registeredDate:"2024-06-01", isActive:true  },
+  { itemCode:"ITM-005", itemName:"封止用パッキン",       description:"シリコン製シール材",           itemCategory:"副資材", itemType:"B種", unitPrice:350,   registeredDate:"2024-06-20", isActive:true  }
+];
+
+let currentDef = DEFAULT_DEF, activeScreenIdx = 0, leftTab = 'json', exportCode = '', exportFilename = '';
+
+/* ── Init ── */
+function init() {
+  document.getElementById('json-editor').value = JSON.stringify(DEFAULT_DEF, null, 2);
+  renderScreenTabs();
+  renderPreview();
+  loadApiKey();
+}
+
+/* ── Helpers ── */
+function getSampleRows() {
+  return (currentDef.sampleData && currentDef.sampleData.length) ? currentDef.sampleData : SAMPLE_ROWS;
+}
+
+function getFieldValue(f) {
+  if (f.dataFieldId) {
+    const df = (currentDef.dataFields || []).find(d => d.id === f.dataFieldId);
+    if (df && df.value !== undefined) return df.value;
+  }
+  return f.value !== undefined ? f.value : '';
+}
+
+function renderDataDefPanel() {
+  const fields = currentDef.dataFields || [];
+  const body   = document.getElementById('data-def-body');
+  if (!fields.length) {
+    body.innerHTML = '<div style="padding:24px;color:#475569;font-size:12px;text-align:center;">dataFields が定義されていません</div>';
+    return;
+  }
+
+  /* 画面項目との対応マップを構築 */
+  const maps = {};
+  (currentDef.screens || []).forEach(sc => {
+    const add = (role, fid, label) => {
+      if (!fid) return;
+      (maps[fid] = maps[fid] || []).push({ role, label, sc: sc.label });
+    };
+    (sc.searchFields || []).forEach(f => add('検索', f.dataFieldId, f.label));
+    (sc.grid?.columns || []).forEach(c => add('一覧', c.dataFieldId, c.label));
+    (sc.fields        || []).forEach(f => add('フォーム', f.dataFieldId, f.label));
+  });
+
+  const TYPE_STYLE = {
+    string:  { bg:'#1a2d3d', fg:'#7dd3fc', border:'#1e4060' },
+    number:  { bg:'#1c3527', fg:'#4ade80', border:'#1e4a34' },
+    date:    { bg:'#2a1c42', fg:'#c084fc', border:'#3a1c5a' },
+    boolean: { bg:'#3a2a10', fg:'#fbbf24', border:'#5a3a10' }
+  };
+
+  const rows = fields.map((df, i) => {
+    const ts   = TYPE_STYLE[df.type] || TYPE_STYLE.string;
+    const badge= `<span style="padding:2px 8px;font-size:10px;background:${ts.bg};color:${ts.fg};border:1px solid ${ts.border};border-radius:10px;font-family:monospace;">${df.type}</span>`;
+    const vRaw = df.value;
+    const vDisp= vRaw === true ? '✓ true' : vRaw === false ? '✗ false' : vRaw != null ? String(vRaw) : '—';
+    const vColor= typeof vRaw === 'boolean' ? (vRaw ? '#4ade80' : '#94a3b8') : '#94a3b8';
+    const mapBadges = (maps[df.id] || []).map(m =>
+      `<span style="display:inline-block;margin:1px;padding:1px 6px;font-size:10px;background:#141c26;color:#64748b;border:1px solid #1e2d3d;border-radius:4px;">${m.role}: ${m.label}</span>`
+    ).join('') || '<span style="font-size:10px;color:#374151;">—</span>';
+    return `<tr style="background:${i%2?'#0d1520':'#0f1722'};border-bottom:1px solid #1a2535;">
+      <td style="padding:7px 10px;font-size:11px;color:#4ade80;font-family:monospace;white-space:nowrap;">${df.id}</td>
+      <td style="padding:7px 10px;font-size:11px;color:#e2e8f0;white-space:nowrap;">${df.label}</td>
+      <td style="padding:7px 10px;">${badge}</td>
+      <td style="padding:7px 10px;font-size:11px;color:#475569;text-align:right;">${df.length != null ? df.length : '—'}</td>
+      <td style="padding:7px 10px;font-size:11px;color:${vColor};font-family:monospace;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${vDisp}">${vDisp}</td>
+      <td style="padding:7px 10px;">${mapBadges}</td>
+    </tr>`;
+  }).join('');
+
+  const TH = 'padding:6px 10px;text-align:left;font-size:10px;color:#475569;font-weight:500;border-bottom:1px solid #1e2d3d;white-space:nowrap;letter-spacing:0.05em;background:#141c26;';
+  body.innerHTML = `<table style="width:100%;border-collapse:collapse;">
+    <thead><tr>
+      <th style="${TH}">項目ID</th>
+      <th style="${TH}">項目名</th>
+      <th style="${TH}">型</th>
+      <th style="${TH}text-align:right;">長さ</th>
+      <th style="${TH}">値</th>
+      <th style="${TH}">対応画面項目</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+
+function switchLeftTab(tab) {
+  leftTab = tab;
+  document.getElementById('lpanel-json').style.display = tab === 'json' ? 'flex'   : 'none';
+  const dp = document.getElementById('lpanel-data');
+  dp.style.display = tab === 'data' ? 'flex' : 'none';
+  if (tab === 'data') { dp.style.flexDirection = 'column'; renderDataDefPanel(); }
+  const aiPanel = document.getElementById('lpanel-ai');
+  aiPanel.style.display = tab === 'ai' ? 'flex' : 'none';
+  if (tab === 'ai') aiPanel.style.flexDirection = 'column';
+  ['json','data','ai'].forEach(t => {
+    const el = document.getElementById('ltab-' + t);
+    el.style.color       = t === tab ? 'white'             : '#64748b';
+    el.style.borderBottom= t === tab ? '2px solid #2563eb' : '2px solid transparent';
+  });
+}
+
+/* ── JSON ── */
+function handleJsonChange(text) {
+  const st = document.getElementById('json-status');
+  try {
+    currentDef = JSON.parse(text);
+    st.textContent = '✓ 有効なJSON'; st.style.color = '#22c55e';
+    renderScreenTabs(); renderPreview();
+    if (leftTab === 'data') renderDataDefPanel();
+  } catch(e) {
+    st.textContent = '⚠ ' + e.message; st.style.color = '#f87171';
+  }
+}
+
+/* ── Screen Tabs ── */
+function renderScreenTabs() {
+  const c = document.getElementById('screen-tabs');
+  c.innerHTML = '';
+  (currentDef.screens || []).forEach((sc, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'scr-btn';
+    btn.textContent = sc.label;
+    btn.onclick = () => { activeScreenIdx = i; renderScreenTabs(); renderPreview(); };
+    btn.style.background  = i === activeScreenIdx ? '#2563eb'    : 'transparent';
+    btn.style.color       = i === activeScreenIdx ? 'white'      : '#94a3b8';
+    btn.style.fontWeight  = i === activeScreenIdx ? '500'        : '400';
+    c.appendChild(btn);
+  });
+}
+
+/* ── Preview ── */
+function renderPreview() {
+  const sc = currentDef.screens?.[activeScreenIdx];
+  if (!sc) return;
+  document.getElementById('preview-breadcrumb').textContent = currentDef.title + ' › ' + sc.label;
+  document.getElementById('preview-appbar').textContent    = currentDef.title + '　/　' + sc.label;
+  const el = document.getElementById('preview-content');
+  el.innerHTML = sc.type === 'search' ? renderSearch(sc) : sc.type === 'form' ? renderForm(sc) : '';
+}
+
+function renderSearch(sc) {
+  const INP = 'flex:1;border:1px solid #d1d5db;border-radius:6px;padding:5px 8px;font-size:12px;';
+  const sFields = (sc.searchFields || []).map(f => {
+    if (f.type === 'checkbox') {
+      return `<div style="display:flex;align-items:center;gap:8px;grid-column:span 2;"><span style="font-size:12px;color:#6b7280;width:82px;text-align:right;flex-shrink:0;"></span><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:#374151;"><input type="checkbox" style="width:14px;height:14px;"> ${f.label}</label></div>`;
+    }
+    let inp;
+    if      (f.type === 'select') inp = `<select style="${INP}background:white;">${(f.options||[]).map(o=>`<option>${o}</option>`).join('')}</select>`;
+    else if (f.type === 'date')   inp = `<input type="date" style="${INP}">`;
+    else if (f.type === 'number') inp = `<input type="number"${f.min!=null?' min="'+f.min+'"':''}${f.max!=null?' max="'+f.max+'"':''} step="${f.step||1}" placeholder="${f.placeholder||''}" style="${INP}">`;
+    else                          inp = `<input type="text" placeholder="${f.placeholder||''}" style="${INP}">`;
+    return `<div style="display:flex;align-items:center;gap:8px;"><label style="font-size:12px;color:#6b7280;width:82px;text-align:right;flex-shrink:0;">${f.label}</label>${inp}</div>`;
+  }).join('');
+
+  const ths = (sc.grid?.columns||[]).map(c =>
+    `<th style="padding:7px 10px;text-align:left;font-size:11px;font-weight:500;color:white;letter-spacing:0.03em;white-space:nowrap;">${c.label}</th>`
+  ).join('');
+
+  const trs = getSampleRows().map((row, i) => {
+    const tds = (sc.grid?.columns||[]).map(c => {
+      let v = row[c.id];
+      if (v === true)        v = `<span style="display:inline-block;padding:1px 8px;font-size:11px;background:#d1fae5;color:#065f46;border-radius:10px;">有効</span>`;
+      else if (v === false)  v = `<span style="display:inline-block;padding:1px 8px;font-size:11px;background:#f3f4f6;color:#9ca3af;border-radius:10px;">無効</span>`;
+      else if (typeof v === 'number') v = v.toLocaleString('ja-JP');
+      else v = v || '';
+      return `<td style="padding:6px 10px;font-size:12px;color:#374151;">${v}</td>`;
+    }).join('');
+    return `<tr style="background:${i%2?'#f9fafb':'white'};border-bottom:1px solid #e5e7eb;">${tds}<td style="padding:6px 10px;text-align:center;white-space:nowrap;"><button style="padding:2px 8px;font-size:11px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:4px;cursor:pointer;margin-right:4px;">編集</button><button style="padding:2px 8px;font-size:11px;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:4px;cursor:pointer;">削除</button></td></tr>`;
+  }).join('');
+
+  const pg       = sc.pagination;
+  const total    = pg ? pg.totalItems : getSampleRows().length;
+  const pageSize = pg ? pg.pageSize   : getSampleRows().length;
+  const pages    = Math.ceil(total / pageSize);
+  const showing  = Math.min(pageSize, getSampleRows().length);
+  const pageButtons = Array.from({length: Math.min(pages, 7)}, (_, i) =>
+    `<button style="padding:2px 8px;font-size:11px;${i===0?'border:none;background:#2563eb;color:white;':'border:1px solid #d1d5db;background:white;color:#6b7280;'}border-radius:4px;cursor:pointer;">${i+1}</button>`
+  ).join('');
+
+  return `<div style="display:flex;flex-direction:column;gap:12px;">
+<div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+  <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f9fafb;border-bottom:1px solid #e5e7eb;">
+    <div style="width:3px;height:14px;background:#2563eb;border-radius:2px;flex-shrink:0;"></div>
+    <span style="font-size:12px;font-weight:500;color:#374151;">検索条件</span>
+  </div>
+  <div style="padding:14px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;">${sFields}</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;">
+      <button style="padding:5px 18px;font-size:12px;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500;">検索</button>
+      <button style="padding:5px 18px;font-size:12px;background:white;color:#6b7280;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;">クリア</button>
+    </div>
+  </div>
+</div>
+<div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#f9fafb;border-bottom:1px solid #e5e7eb;">
+    <span style="font-size:12px;color:#6b7280;">検索結果: <strong style="color:#111827;">${total}</strong> 件</span>
+    <button style="padding:3px 12px;font-size:12px;background:#059669;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500;">＋ 新規登録</button>
+  </div>
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="background:#1c2a3a;">${ths}<th style="padding:7px 10px;text-align:center;font-size:11px;font-weight:500;color:white;width:96px;">操作</th></tr></thead>
+      <tbody>${trs}</tbody>
+    </table>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:#f9fafb;border-top:1px solid #e5e7eb;">
+    <span style="font-size:11px;color:#9ca3af;">1–${showing} / ${total} 件${pg ? '　(' + pageSize + '件/ページ)' : ''}</span>
+    <div style="display:flex;gap:4px;">
+      <button style="padding:2px 8px;font-size:11px;border:1px solid #d1d5db;background:white;border-radius:4px;color:#9ca3af;cursor:pointer;">«</button>
+      ${pageButtons}
+      <button style="padding:2px 8px;font-size:11px;border:1px solid #d1d5db;background:white;border-radius:4px;color:#9ca3af;cursor:pointer;">»</button>
+    </div>
+  </div>
+</div></div>`;
+}
+
+function renderForm(sc) {
+  const flds = (sc.fields||[]).map(f => {
+    const v = getFieldValue(f);
+    let inp;
+    const base = 'border:1px solid #d1d5db;border-radius:6px;padding:6px 10px;font-size:12px;font-family:inherit;';
+    if (f.type === 'textarea') {
+      inp = `<textarea rows="3" style="width:100%;${base}resize:none;">${v||''}</textarea>`;
+    } else if (f.type === 'select') {
+      const opts = (f.options||[]).map(o=>`<option${o===v?' selected':''}>${o}</option>`).join('');
+      inp = `<select style="width:100%;${base}background:white;">${opts}</select>`;
+    } else if (f.type === 'date') {
+      inp = `<input type="date" value="${v||''}" style="${base}">`;
+    } else if (f.type === 'number') {
+      inp = `<div style="display:flex;align-items:center;gap:6px;"><input type="number" value="${v??''}"${f.min!=null?' min="'+f.min+'"':''}${f.max!=null?' max="'+f.max+'"':''} step="${f.step||1}" style="width:140px;${base}">${f.unit?`<span style="font-size:12px;color:#6b7280;">${f.unit}</span>`:''}</div>`;
+    } else if (f.type === 'checkbox') {
+      const chk = v !== '' ? Boolean(v) : (f.defaultChecked ?? false);
+      inp = `<label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;padding:5px 0;"><input type="checkbox"${chk?' checked':''} style="width:16px;height:16px;"><span style="font-size:12px;color:#374151;">${f.checkboxLabel || f.label}</span></label>`;
+    } else {
+      inp = `<input type="text" value="${v||''}" style="width:100%;${base}">`;
+    }
+    const isInline = f.type === 'checkbox';
+    return `<div style="display:flex;align-items:${isInline?'center':'start'};gap:14px;"><label style="font-size:12px;color:#6b7280;width:88px;text-align:right;flex-shrink:0;${isInline?'':'padding-top:7px;'}">${f.label}${f.required?'<span style="color:#ef4444;margin-left:2px;">*</span>':''}</label><div style="flex:1;">${inp}</div></div>`;
+  }).join('');
+
+  const dBtns = (sc.actions||[]).filter(a=>a.type==='danger').map(a =>
+    `<button style="padding:6px 16px;font-size:12px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500;">${a.label}</button>`
+  ).join('');
+  const mBtns = (sc.actions||[]).filter(a=>a.type!=='danger').map(a => {
+    const s = a.type==='primary' ? 'background:#2563eb;color:white;border:none;' : 'background:white;color:#6b7280;border:1px solid #d1d5db;';
+    return `<button style="padding:6px 16px;font-size:12px;${s}border-radius:6px;cursor:pointer;font-weight:500;">${a.label}</button>`;
+  }).join('');
+
+  return `<div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;max-width:580px;">
+<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:#f9fafb;border-bottom:1px solid #e5e7eb;">
+  <div style="display:flex;align-items:center;gap:8px;"><div style="width:3px;height:14px;background:#2563eb;border-radius:2px;"></div><span style="font-size:12px;font-weight:500;color:#374151;">品目情報</span></div>
+  <span style="font-size:11px;color:#9ca3af;">* 必須項目</span>
+</div>
+<div style="padding:18px;display:flex;flex-direction:column;gap:14px;">${flds}</div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 16px;background:#f9fafb;border-top:1px solid #e5e7eb;">
+  <div>${dBtns}</div><div style="display:flex;gap:8px;">${mBtns}</div>
+</div></div>`;
+}
+
+/* ── API Key ── */
+function saveApiKey() {
+  const val = document.getElementById('api-key-input').value;
+  sessionStorage.setItem('anthropic_api_key', val);
+  const st = document.getElementById('key-status');
+  if (val.startsWith('sk-ant-')) {
+    st.textContent = '✓ キーを設定済み'; st.style.color = '#22c55e';
+  } else if (val.length > 0) {
+    st.textContent = '⚠ 形式が正しくない可能性があります (sk-ant-... で始まるはず)'; st.style.color = '#fbbf24';
+  } else {
+    st.textContent = 'セッション中のみ保持されます。ページを閉じると消去されます。'; st.style.color = '#475569';
+  }
+}
+function toggleApiKeyVisibility() {
+  const inp = document.getElementById('api-key-input');
+  const btn = document.getElementById('key-vis-btn');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+  btn.textContent = inp.type === 'password' ? '表示' : '隠す';
+}
+function loadApiKey() {
+  const saved = sessionStorage.getItem('anthropic_api_key');
+  if (saved) {
+    document.getElementById('api-key-input').value = saved;
+    saveApiKey();
+  }
+}
+
+/* ── AI Generate ── */
+async function handleAiGenerate() {
+  const prompt = document.getElementById('ai-prompt').value.trim();
+  if (!prompt) return;
+  const apiKey = document.getElementById('api-key-input').value.trim();
+  const btn = document.getElementById('ai-btn'), err = document.getElementById('ai-error');
+  if (!apiKey) {
+    err.textContent = 'APIキーを入力してください。'; err.style.display = 'block'; return;
+  }
+  btn.textContent = '⏳ 生成中...'; btn.disabled = true; err.style.display = 'none';
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({
+        model: 'claude-opus-4-5',
+        max_tokens: 1500,
+        system: 'Web業務画面の定義JSONを生成する。以下スキーマのJSONのみ返す。説明文やコードブロック記法は不要。\n{"id":"string","title":"string","dataFields":[{"id":"string","label":"string","type":"string|number|date|boolean","length":10,"value":"any"}],"sampleData":[{"fieldId":"value"}],"screens":[{"id":"search","label":"検索画面","type":"search","searchFields":[{"id":"string","label":"string","type":"text|select|date|number|checkbox","dataFieldId":"string","placeholder":"string","options":["string"]}],"grid":{"columns":[{"id":"string","label":"string","dataFieldId":"string"}]},"pagination":{"pageSize":10,"totalItems":100}},{"id":"detail","label":"詳細・編集画面","type":"form","fields":[{"id":"string","label":"string","type":"text|textarea|select|date|number|checkbox","required":true,"dataFieldId":"string","options":["string"],"min":0,"max":100,"step":1,"unit":"string","defaultChecked":false}],"actions":[{"id":"string","label":"string","type":"primary|secondary|danger"}]}]}',
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    const text = data.content.map(i=>i.text||'').join('').replace(/```json|```/g,'').trim();
+    const parsed = JSON.parse(text);
+    currentDef = parsed;
+    document.getElementById('json-editor').value = JSON.stringify(parsed, null, 2);
+    document.getElementById('json-status').textContent = '✓ 有効なJSON';
+    document.getElementById('json-status').style.color = '#22c55e';
+    renderScreenTabs(); renderPreview(); switchLeftTab('json');
+  } catch(e) {
+    err.textContent = '生成エラー: ' + e.message; err.style.display = 'block';
+  } finally {
+    btn.textContent = '✨ 画面定義を生成'; btn.disabled = false;
+  }
+}
+
+/* ── Export ── */
+function handleExportHtml() {
+  const sc = currentDef.screens?.[activeScreenIdx];
+  if (!sc) return;
+  exportCode     = sc.type === 'search' ? genSearchHtml(sc) : genFormHtml(sc);
+  exportFilename = currentDef.id + '-' + sc.id + '.html';
+  openModal('HTMLエクスポート — ' + sc.label, exportCode);
+}
+function handleExportJson() {
+  exportCode     = JSON.stringify(currentDef, null, 2);
+  exportFilename = currentDef.id + '.json';
+  openModal('JSON定義エクスポート', exportCode);
+}
+function openModal(title, code) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-code').textContent  = code;
+  document.getElementById('modal').style.display     = 'flex';
+}
+function closeModal() { document.getElementById('modal').style.display = 'none'; }
+function handleCopy() {
+  navigator.clipboard.writeText(exportCode).then(() => {
+    const b = document.getElementById('modal-copy-btn');
+    b.textContent = '✓ コピー済';
+    setTimeout(() => { b.textContent = '📋 コピー'; }, 2000);
+  });
+}
+function handleDownload() {
+  const a = document.createElement('a');
+  a.href     = URL.createObjectURL(new Blob([exportCode], { type: 'text/plain' }));
+  a.download = exportFilename;
+  a.click();
+}
+
+/* ── HTML Generators ── */
+function genSearchHtml(sc) {
+  const t = currentDef.title;
+  const sf = (sc.searchFields||[]).map(f => {
+    if (f.type === 'checkbox')
+      return `<div style="display:flex;align-items:center;gap:8px;grid-column:span 2;"><span style="width:90px;flex-shrink:0;"></span><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:#374151;"><input type="checkbox"> ${f.label}</label></div>`;
+    let i;
+    if      (f.type==='select') i=`<select style="flex:1;border:1px solid #d1d5db;border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit;">${(f.options||[]).map(o=>`<option>${o}</option>`).join('')}</select>`;
+    else if (f.type==='date')   i=`<input type="date" style="flex:1;border:1px solid #d1d5db;border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit;">`;
+    else if (f.type==='number') i=`<input type="number"${f.min!=null?' min="'+f.min+'"':''}${f.max!=null?' max="'+f.max+'"':''} step="${f.step||1}" placeholder="${f.placeholder||''}" style="flex:1;border:1px solid #d1d5db;border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit;">`;
+    else                        i=`<input type="text" placeholder="${f.placeholder||''}" style="flex:1;border:1px solid #d1d5db;border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit;">`;
+    return `<div style="display:flex;align-items:center;gap:8px;"><label style="font-size:13px;color:#6b7280;width:90px;text-align:right;flex-shrink:0;">${f.label}</label>${i}</div>`;
+  }).join('\n          ');
+  const ths = (sc.grid?.columns||[]).map(c=>`<th style="padding:8px 12px;font-size:12px;font-weight:500;color:white;text-align:left;">${c.label}</th>`).join('');
+  const trs = getSampleRows().map((row,i) => {
+    const tds = (sc.grid?.columns||[]).map(c=>{
+      let v=row[c.id];
+      if (v===true)       v='<span style="padding:1px 8px;font-size:12px;background:#d1fae5;color:#065f46;border-radius:10px;">有効</span>';
+      else if (v===false) v='<span style="padding:1px 8px;font-size:12px;background:#f3f4f6;color:#9ca3af;border-radius:10px;">無効</span>';
+      else if (typeof v==='number') v=v.toLocaleString('ja-JP');
+      else v=v||'';
+      return `<td style="padding:8px 12px;font-size:13px;color:#374151;">${v}</td>`;
+    }).join('');
+    return `<tr style="background:${i%2?'#f9fafb':'white'};border-bottom:1px solid #e5e7eb;">${tds}<td style="padding:8px 12px;text-align:center;"><button style="padding:3px 10px;font-size:12px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:4px;cursor:pointer;margin-right:4px;">編集</button><button style="padding:3px 10px;font-size:12px;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:4px;cursor:pointer;">削除</button></td></tr>`;
+  }).join('');
+  const pg       = sc.pagination;
+  const total    = pg ? pg.totalItems : getSampleRows().length;
+  const pageSize = pg ? pg.pageSize   : getSampleRows().length;
+  const pages    = Math.ceil(total / pageSize);
+  const showing  = Math.min(pageSize, getSampleRows().length);
+  const pgBtns   = Array.from({length:Math.min(pages,7)},(_,i)=>
+    `<button style="padding:3px 10px;font-size:12px;${i===0?'background:#2563eb;color:white;border:none;':'background:white;color:#6b7280;border:1px solid #d1d5db;'}border-radius:4px;cursor:pointer;">${i+1}</button>`
+  ).join('');
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${t} - ${sc.label}</title>
+<style>*{box-sizing:border-box}body{font-family:'Noto Sans JP',system-ui,sans-serif;background:#f1f5f9;margin:0}</style>
+</head>
+<body>
+<header style="background:#1c2a3a;color:white;padding:12px 20px;font-size:14px;font-weight:500;">${t} / ${sc.label}</header>
+<main style="padding:20px;max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:16px;">
+  <div style="background:white;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+    <div style="padding:10px 14px;background:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:13px;font-weight:500;color:#374151;">検索条件</div>
+    <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px 24px;">
+          ${sf}
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid #e5e7eb;">
+      <button style="padding:6px 20px;font-size:13px;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500;font-family:inherit;">検索</button>
+      <button style="padding:6px 20px;font-size:13px;background:white;color:#6b7280;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;font-family:inherit;">クリア</button>
+    </div>
+  </div>
+  <div style="background:white;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#f9fafb;border-bottom:1px solid #e5e7eb;">
+      <span style="font-size:13px;color:#6b7280;">検索結果: <strong>${total}</strong> 件</span>
+      <button style="padding:5px 14px;font-size:13px;background:#059669;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500;font-family:inherit;">＋ 新規登録</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;">
+        <thead><tr style="background:#1c2a3a;">${ths}<th style="padding:8px 12px;font-size:12px;font-weight:500;color:white;width:110px;text-align:center;">操作</th></tr></thead>
+        <tbody>${trs}</tbody>
+      </table>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:#f9fafb;border-top:1px solid #e5e7eb;">
+      <span style="font-size:12px;color:#9ca3af;">1–${showing} / ${total} 件${pg?'　('+pageSize+'件/ページ)':''}</span>
+      <div style="display:flex;gap:4px;">
+        <button style="padding:3px 10px;font-size:12px;border:1px solid #d1d5db;background:white;border-radius:4px;color:#9ca3af;cursor:pointer;">«</button>
+        ${pgBtns}
+        <button style="padding:3px 10px;font-size:12px;border:1px solid #d1d5db;background:white;border-radius:4px;color:#9ca3af;cursor:pointer;">»</button>
+      </div>
+    </div>
+  </div>
+</main>
+</body>
+</html>`;
+}
+
+function genFormHtml(sc) {
+  const t = currentDef.title;
+  const base = 'border:1px solid #d1d5db;border-radius:6px;padding:7px 10px;font-size:13px;font-family:inherit;';
+  const flds = (sc.fields||[]).map(f => {
+    const v = getFieldValue(f);
+    let inp;
+    if (f.type==='textarea')      inp=`<textarea rows="4" style="width:100%;${base}resize:none;">${v||''}</textarea>`;
+    else if (f.type==='select'){const opts=(f.options||[]).map(o=>`<option${o===v?' selected':''}>${o}</option>`).join('');inp=`<select style="width:100%;${base}background:white;">${opts}</select>`;}
+    else if (f.type==='date')     inp=`<input type="date" value="${v||''}" style="${base}">`;
+    else if (f.type==='number')  {inp=`<div style="display:flex;align-items:center;gap:6px;"><input type="number" value="${v??''}"${f.min!=null?' min="'+f.min+'"':''}${f.max!=null?' max="'+f.max+'"':''} step="${f.step||1}" style="width:150px;${base}">${f.unit?`<span style="font-size:13px;color:#6b7280;">${f.unit}</span>`:''}</div>`;}
+    else if (f.type==='checkbox'){const chk=v!==''?Boolean(v):(f.defaultChecked??false);inp=`<label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;padding:6px 0;"><input type="checkbox"${chk?' checked':''} style="width:16px;height:16px;"><span style="font-size:13px;color:#374151;">${f.checkboxLabel||f.label}</span></label>`;}
+    else                          inp=`<input type="text" value="${v||''}" style="width:100%;${base}">`;
+    const isInline = f.type==='checkbox';
+    return `<div style="display:flex;align-items:${isInline?'center':'start'};gap:16px;"><label style="font-size:13px;color:#6b7280;width:96px;text-align:right;flex-shrink:0;${isInline?'':'padding-top:8px;'}">${f.label}${f.required?'<span style="color:#ef4444;margin-left:2px;">*</span>':''}</label><div style="flex:1;">${inp}</div></div>`;
+  }).join('\n      ');
+  const dBtns = (sc.actions||[]).filter(a=>a.type==='danger').map(a=>
+    `<button style="padding:7px 20px;font-size:13px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500;font-family:inherit;">${a.label}</button>`
+  ).join('');
+  const mBtns = (sc.actions||[]).filter(a=>a.type!=='danger').map(a =>
+    `<button style="padding:7px 20px;font-size:13px;${a.type==='primary'?'background:#2563eb;color:white;border:none;':'background:white;color:#6b7280;border:1px solid #d1d5db;'}border-radius:6px;cursor:pointer;font-weight:500;font-family:inherit;">${a.label}</button>`
+  ).join('');
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${t} - ${sc.label}</title>
+<style>*{box-sizing:border-box}body{font-family:'Noto Sans JP',system-ui,sans-serif;background:#f1f5f9;margin:0}</style>
+</head>
+<body>
+<header style="background:#1c2a3a;color:white;padding:12px 20px;font-size:14px;font-weight:500;">${t} / ${sc.label}</header>
+<main style="padding:20px;max-width:720px;margin:0 auto;">
+  <div style="background:white;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;">
+      <span style="font-size:13px;font-weight:500;color:#374151;">品目情報</span>
+      <span style="font-size:12px;color:#9ca3af;">* 必須項目</span>
+    </div>
+    <div style="padding:22px;display:flex;flex-direction:column;gap:16px;">
+      ${flds}
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:#f9fafb;border-top:1px solid #e5e7eb;">
+      <div>${dBtns}</div>
+      <div style="display:flex;gap:8px;">${mBtns}</div>
+    </div>
+  </div>
+</main>
+</body>
+</html>`;
+}
+
+init();
+</script>
+</body>
+</html>

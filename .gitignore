@@ -1,0 +1,28 @@
+# IDE / Editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Node.js (in case you add it later)
+node_modules/
+npm-debug.log
+yarn-error.log
+.env
+.env.local
+
+# Build output
+dist/
+build/
