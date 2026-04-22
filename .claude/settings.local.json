@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx playwright *)",
+      "Bash(where node *)",
+      "Bash(where npm *)",
+      "Bash(where npx *)",
+      "Bash(C:/Users/yopey/AppData/Local/mise/shims/node.exe --version)",
+      "Bash(C:/Users/yopey/AppData/Local/mise/shims/npm.exe --version)",
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "PowerShell(mise use --global node@lts 2>&1)",
+      "PowerShell(node --version 2>&1)"
+    ]
+  }
+}

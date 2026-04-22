@@ -107,7 +107,7 @@ body { font-family: 'Noto Sans JP', system-ui, sans-serif; background: #f1f5f9; 
     </div>
   </div>
 
-  <!-- Modal -->
+  <!-- Export Modal -->
   <div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:50;align-items:center;justify-content:center;padding:24px;">
     <div style="background:white;border-radius:10px;width:100%;max-width:720px;display:flex;flex-direction:column;max-height:85vh;overflow:hidden;border:1px solid #e5e7eb;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #e5e7eb;flex-shrink:0;">
@@ -119,6 +119,17 @@ body { font-family: 'Noto Sans JP', system-ui, sans-serif; background: #f1f5f9; 
         </div>
       </div>
       <pre id="modal-code" style="flex:1;overflow:auto;padding:16px;margin:0;font-family:'Courier New',monospace;font-size:11px;color:#4ade80;background:#0f1722;line-height:1.6;border-radius:0 0 10px 10px;"></pre>
+    </div>
+  </div>
+
+  <!-- API Call Modal -->
+  <div id="api-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:50;align-items:center;justify-content:center;padding:24px;">
+    <div style="background:#0f1722;border-radius:10px;width:100%;max-width:640px;display:flex;flex-direction:column;max-height:85vh;overflow:hidden;border:1px solid #1e2d3d;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #1e2d3d;flex-shrink:0;">
+        <span id="api-modal-title" style="font-size:13px;font-weight:500;color:#e2e8f0;"></span>
+        <button onclick="closeApiModal()" style="padding:5px 12px;font-size:12px;background:transparent;border:1px solid #2a3a50;color:#64748b;border-radius:6px;cursor:pointer;font-family:inherit;">閉じる</button>
+      </div>
+      <div id="api-modal-body" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;"></div>
     </div>
   </div>
 </div>
@@ -184,9 +195,25 @@ const DEFAULT_DEF = {
         { id: "isActive",       label: "有効",       type: "checkbox", defaultChecked: true, dataFieldId: "isActive"                      }
       ],
       actions: [
-        { id: "save",   label: "保存",       type: "primary"   },
+        { id: "save", label: "保存", type: "primary",
+          api: { method: "POST", url: "https://api.example.com/items",
+            paramMapping: [
+              { param: "code",     fieldId: "itemCode",     in: "body" },
+              { param: "name",     fieldId: "itemName",     in: "body" },
+              { param: "category", fieldId: "itemCategory", in: "body" },
+              { param: "price",    fieldId: "unitPrice",    in: "body" },
+              { param: "active",   fieldId: "isActive",     in: "body" }
+            ]
+          }
+        },
         { id: "cancel", label: "キャンセル", type: "secondary" },
-        { id: "delete", label: "削除",       type: "danger"    }
+        { id: "delete", label: "削除", type: "danger",
+          api: { method: "DELETE", url: "https://api.example.com/items/{itemCode}",
+            paramMapping: [
+              { param: "itemCode", fieldId: "itemCode", in: "path" }
+            ]
+          }
+        }
       ]
     }
   ]
@@ -251,27 +278,68 @@ function renderDataDefPanel() {
     boolean: { bg:'#3a2a10', fg:'#fbbf24', border:'#5a3a10' }
   };
 
+  const cinp = extra => `background:transparent;border:none;border-bottom:1px solid #1e2d3d;font-family:inherit;font-size:11px;outline:none;${extra}`;
+  const foc  = `onfocus="this.style.borderBottomColor='#2563eb'" onblur="this.style.borderBottomColor='#1e2d3d'"`;
+
   const rows = fields.map((df, i) => {
-    const ts   = TYPE_STYLE[df.type] || TYPE_STYLE.string;
-    const badge= `<span style="padding:2px 8px;font-size:10px;background:${ts.bg};color:${ts.fg};border:1px solid ${ts.border};border-radius:10px;font-family:monospace;">${df.type}</span>`;
-    const vRaw = df.value;
-    const vDisp= vRaw === true ? '✓ true' : vRaw === false ? '✗ false' : vRaw != null ? String(vRaw) : '—';
-    const vColor= typeof vRaw === 'boolean' ? (vRaw ? '#4ade80' : '#94a3b8') : '#94a3b8';
+    const ts = TYPE_STYLE[df.type] || TYPE_STYLE.string;
+
+    /* 型 select */
+    const typeOpts = ['string','number','date','boolean'].map(t =>
+      `<option value="${t}"${t===df.type?' selected':''}>${t}</option>`
+    ).join('');
+    const typeEl = `<select onchange="updateDataField(${i},'type',this.value)"
+      style="padding:2px 8px;font-size:10px;background:${ts.bg};color:${ts.fg};border:1px solid ${ts.border};border-radius:10px;font-family:monospace;cursor:pointer;outline:none;"
+    >${typeOpts}</select>`;
+
+    /* 項目名 input */
+    const labelEl = `<input type="text" value="${df.label.replace(/"/g,'&quot;')}"
+      oninput="updateDataField(${i},'label',this.value)"
+      style="${cinp('color:#e2e8f0;min-width:60px;width:90px;')}" ${foc}>`;
+
+    /* 長さ input */
+    const lenEl = `<input type="number" value="${df.length??''}"
+      oninput="updateDataField(${i},'length',this.value)"
+      style="${cinp('color:#475569;width:48px;text-align:right;')}" ${foc}>`;
+
+    /* 値 input — 型に応じて切替 */
+    const vColor = df.type === 'boolean' ? (df.value ? '#4ade80' : '#94a3b8') : '#94a3b8';
+    let valEl;
+    if (df.type === 'boolean') {
+      valEl = `<select onchange="updateDataField(${i},'value',this.value)"
+        style="background:transparent;border:none;border-bottom:1px solid #1e2d3d;font-size:11px;color:${vColor};font-family:monospace;cursor:pointer;outline:none;"
+      ><option value="true"${df.value===true?' selected':''}>✓ true</option
+       ><option value="false"${df.value===false?' selected':''}>✗ false</option></select>`;
+    } else if (df.type === 'date') {
+      valEl = `<input type="date" value="${df.value||''}"
+        onchange="updateDataField(${i},'value',this.value)"
+        style="${cinp('color:#c084fc;')}" ${foc}>`;
+    } else if (df.type === 'number') {
+      valEl = `<input type="number" value="${df.value??''}"
+        oninput="updateDataField(${i},'value',this.value)"
+        style="${cinp('color:#94a3b8;width:80px;')}" ${foc}>`;
+    } else {
+      valEl = `<input type="text" value="${String(df.value??'').replace(/"/g,'&quot;')}"
+        oninput="updateDataField(${i},'value',this.value)"
+        style="${cinp('color:#94a3b8;max-width:120px;')}" ${foc}>`;
+    }
+
     const mapBadges = (maps[df.id] || []).map(m =>
       `<span style="display:inline-block;margin:1px;padding:1px 6px;font-size:10px;background:#141c26;color:#64748b;border:1px solid #1e2d3d;border-radius:4px;">${m.role}: ${m.label}</span>`
     ).join('') || '<span style="font-size:10px;color:#374151;">—</span>';
+
     return `<tr style="background:${i%2?'#0d1520':'#0f1722'};border-bottom:1px solid #1a2535;">
       <td style="padding:7px 10px;font-size:11px;color:#4ade80;font-family:monospace;white-space:nowrap;">${df.id}</td>
-      <td style="padding:7px 10px;font-size:11px;color:#e2e8f0;white-space:nowrap;">${df.label}</td>
-      <td style="padding:7px 10px;">${badge}</td>
-      <td style="padding:7px 10px;font-size:11px;color:#475569;text-align:right;">${df.length != null ? df.length : '—'}</td>
-      <td style="padding:7px 10px;font-size:11px;color:${vColor};font-family:monospace;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${vDisp}">${vDisp}</td>
+      <td style="padding:7px 10px;">${labelEl}</td>
+      <td style="padding:7px 10px;">${typeEl}</td>
+      <td style="padding:7px 10px;text-align:right;">${lenEl}</td>
+      <td style="padding:7px 10px;">${valEl}</td>
       <td style="padding:7px 10px;">${mapBadges}</td>
     </tr>`;
   }).join('');
 
   const TH = 'padding:6px 10px;text-align:left;font-size:10px;color:#475569;font-weight:500;border-bottom:1px solid #1e2d3d;white-space:nowrap;letter-spacing:0.05em;background:#141c26;';
-  body.innerHTML = `<table style="width:100%;border-collapse:collapse;">
+  let html = `<table style="width:100%;border-collapse:collapse;">
     <thead><tr>
       <th style="${TH}">項目ID</th>
       <th style="${TH}">項目名</th>
@@ -282,8 +350,72 @@ function renderDataDefPanel() {
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+
+  /* ── API定義セクション ── */
+  const apiActions = [];
+  (currentDef.screens || []).forEach(sc => {
+    (sc.actions || []).forEach(a => { if (a.api) apiActions.push({ sc, action: a }); });
+  });
+  if (apiActions.length) {
+    const methodColor = m => ({ GET:'#4ade80', POST:'#fbbf24', PUT:'#60a5fa', PATCH:'#c084fc', DELETE:'#f87171' }[m] || '#94a3b8');
+    const inColor     = v => ({ body:'#4ade80', query:'#fbbf24', path:'#c084fc' }[v] || '#94a3b8');
+    const TH2 = 'padding:4px 8px;font-size:9px;color:#475569;text-align:left;letter-spacing:0.05em;background:#0d1520;';
+    const apiCards = apiActions.map(({ sc, action }) => {
+      const api = action.api;
+      const mapRows = (api.paramMapping || []).map(m => {
+        const df = (currentDef.dataFields || []).find(d => d.id === m.fieldId);
+        return `<tr style="border-bottom:1px solid #1a2535;">
+          <td style="padding:4px 8px;font-size:10px;color:#4ade80;font-family:monospace;">${m.param}</td>
+          <td style="padding:4px 8px;font-size:10px;color:#94a3b8;font-family:monospace;">${m.fieldId}</td>
+          <td style="padding:4px 8px;font-size:10px;color:#e2e8f0;">${df ? df.label : '—'}</td>
+          <td style="padding:4px 8px;"><span style="font-size:9px;padding:1px 6px;background:#1a2535;color:${inColor(m.in)};border:1px solid #2a3a50;border-radius:4px;font-family:monospace;">${m.in || 'body'}</span></td>
+        </tr>`;
+      }).join('');
+      return `<div style="border:1px solid #1e2d3d;border-radius:6px;overflow:hidden;margin-bottom:8px;">
+        <div style="padding:7px 10px;background:#141c26;border-bottom:1px solid #1e2d3d;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-size:11px;color:#e2e8f0;font-weight:500;">${sc.label} › ${action.label}</span>
+          <span style="font-size:10px;padding:1px 7px;background:#1a2535;color:${methodColor(api.method)};border:1px solid #2a3a50;border-radius:4px;font-family:monospace;">${api.method || 'GET'}</span>
+          <span style="font-size:10px;color:#475569;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;" title="${api.url || ''}">${api.url || ''}</span>
+        </div>
+        ${mapRows
+          ? `<table style="width:100%;border-collapse:collapse;"><thead><tr>
+              <th style="${TH2}">APIパラメータ</th><th style="${TH2}">フィールドID</th>
+              <th style="${TH2}">項目名</th><th style="${TH2}">位置</th>
+             </tr></thead><tbody>${mapRows}</tbody></table>`
+          : '<div style="padding:8px 10px;font-size:11px;color:#475569;">マッピングなし</div>'}
+      </div>`;
+    }).join('');
+    html += `<div style="padding:7px 10px;font-size:10px;color:#475569;border-top:2px solid #1e2d3d;background:#141c26;letter-spacing:0.06em;font-weight:500;text-transform:uppercase;">API定義 — アクション連携</div>
+    <div style="padding:10px;">${apiCards}</div>`;
+  }
+
+  body.innerHTML = html;
 }
 
+function updateDataField(idx, prop, rawVal) {
+  const df = currentDef.dataFields?.[idx];
+  if (!df) return;
+
+  if (prop === 'type') {
+    df.type = rawVal;
+    const defaults = { string: '', number: 0, date: '', boolean: false };
+    df.value = defaults[rawVal] ?? '';
+  } else if (prop === 'length') {
+    df.length = rawVal === '' ? null : Number(rawVal);
+  } else if (prop === 'value') {
+    if      (df.type === 'number')  df.value = rawVal === '' ? null : Number(rawVal);
+    else if (df.type === 'boolean') df.value = rawVal === 'true' || rawVal === true;
+    else                            df.value = rawVal;
+  } else {
+    df[prop] = rawVal;
+  }
+
+  document.getElementById('json-editor').value = JSON.stringify(currentDef, null, 2);
+  document.getElementById('json-status').textContent = '✓ 有効なJSON';
+  document.getElementById('json-status').style.color = '#22c55e';
+  renderPreview();
+  if (prop === 'type') renderDataDefPanel();
+}
 
 function switchLeftTab(tab) {
   leftTab = tab;
@@ -420,31 +552,39 @@ function renderForm(sc) {
     const v = getFieldValue(f);
     let inp;
     const base = 'border:1px solid #d1d5db;border-radius:6px;padding:6px 10px;font-size:12px;font-family:inherit;';
+    const dfid = `data-field-id="${f.id}"`;
     if (f.type === 'textarea') {
-      inp = `<textarea rows="3" style="width:100%;${base}resize:none;">${v||''}</textarea>`;
+      inp = `<textarea rows="3" ${dfid} style="width:100%;${base}resize:none;">${v||''}</textarea>`;
     } else if (f.type === 'select') {
       const opts = (f.options||[]).map(o=>`<option${o===v?' selected':''}>${o}</option>`).join('');
-      inp = `<select style="width:100%;${base}background:white;">${opts}</select>`;
+      inp = `<select ${dfid} style="width:100%;${base}background:white;">${opts}</select>`;
     } else if (f.type === 'date') {
-      inp = `<input type="date" value="${v||''}" style="${base}">`;
+      inp = `<input type="date" ${dfid} value="${v||''}" style="${base}">`;
     } else if (f.type === 'number') {
-      inp = `<div style="display:flex;align-items:center;gap:6px;"><input type="number" value="${v??''}"${f.min!=null?' min="'+f.min+'"':''}${f.max!=null?' max="'+f.max+'"':''} step="${f.step||1}" style="width:140px;${base}">${f.unit?`<span style="font-size:12px;color:#6b7280;">${f.unit}</span>`:''}</div>`;
+      inp = `<div style="display:flex;align-items:center;gap:6px;"><input type="number" ${dfid} value="${v??''}"${f.min!=null?' min="'+f.min+'"':''}${f.max!=null?' max="'+f.max+'"':''} step="${f.step||1}" style="width:140px;${base}">${f.unit?`<span style="font-size:12px;color:#6b7280;">${f.unit}</span>`:''}</div>`;
     } else if (f.type === 'checkbox') {
       const chk = v !== '' ? Boolean(v) : (f.defaultChecked ?? false);
-      inp = `<label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;padding:5px 0;"><input type="checkbox"${chk?' checked':''} style="width:16px;height:16px;"><span style="font-size:12px;color:#374151;">${f.checkboxLabel || f.label}</span></label>`;
+      inp = `<label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;padding:5px 0;"><input type="checkbox" ${dfid}${chk?' checked':''} style="width:16px;height:16px;"><span style="font-size:12px;color:#374151;">${f.checkboxLabel || f.label}</span></label>`;
     } else {
-      inp = `<input type="text" value="${v||''}" style="width:100%;${base}">`;
+      inp = `<input type="text" ${dfid} value="${v||''}" style="width:100%;${base}">`;
     }
     const isInline = f.type === 'checkbox';
     return `<div style="display:flex;align-items:${isInline?'center':'start'};gap:14px;"><label style="font-size:12px;color:#6b7280;width:88px;text-align:right;flex-shrink:0;${isInline?'':'padding-top:7px;'}">${f.label}${f.required?'<span style="color:#ef4444;margin-left:2px;">*</span>':''}</label><div style="flex:1;">${inp}</div></div>`;
   }).join('');
 
+  const mkBtn = (a, style) => {
+    const hasApi = !!a.api;
+    const onclick = hasApi ? `onclick="callActionApi('${sc.id}','${a.id}')"` : '';
+    const ind = hasApi ? '<span style="font-size:9px;margin-left:5px;opacity:0.8;vertical-align:middle;">⚡</span>' : '';
+    return `<button ${onclick} style="padding:6px 16px;font-size:12px;${style}border-radius:6px;cursor:pointer;font-weight:500;">${a.label}${ind}</button>`;
+  };
+
   const dBtns = (sc.actions||[]).filter(a=>a.type==='danger').map(a =>
-    `<button style="padding:6px 16px;font-size:12px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500;">${a.label}</button>`
+    mkBtn(a, 'background:#dc2626;color:white;border:none;')
   ).join('');
   const mBtns = (sc.actions||[]).filter(a=>a.type!=='danger').map(a => {
     const s = a.type==='primary' ? 'background:#2563eb;color:white;border:none;' : 'background:white;color:#6b7280;border:1px solid #d1d5db;';
-    return `<button style="padding:6px 16px;font-size:12px;${s}border-radius:6px;cursor:pointer;font-weight:500;">${a.label}</button>`;
+    return mkBtn(a, s);
   }).join('');
 
   return `<div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;max-width:580px;">
@@ -452,11 +592,90 @@ function renderForm(sc) {
   <div style="display:flex;align-items:center;gap:8px;"><div style="width:3px;height:14px;background:#2563eb;border-radius:2px;"></div><span style="font-size:12px;font-weight:500;color:#374151;">品目情報</span></div>
   <span style="font-size:11px;color:#9ca3af;">* 必須項目</span>
 </div>
-<div style="padding:18px;display:flex;flex-direction:column;gap:14px;">${flds}</div>
+<div id="form-fields-${sc.id}" style="padding:18px;display:flex;flex-direction:column;gap:14px;">${flds}</div>
 <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 16px;background:#f9fafb;border-top:1px solid #e5e7eb;">
   <div>${dBtns}</div><div style="display:flex;gap:8px;">${mBtns}</div>
 </div></div>`;
 }
+
+/* ── Action API Call ── */
+async function callActionApi(scId, actionId) {
+  const sc     = currentDef.screens?.find(s => s.id === scId);
+  const action = sc?.actions?.find(a => a.id === actionId);
+  if (!action?.api) return;
+  const api = action.api;
+
+  /* フォームの現在値を収集 */
+  const formEl = document.getElementById('form-fields-' + scId);
+  const values = {};
+  if (formEl) {
+    formEl.querySelectorAll('[data-field-id]').forEach(el => {
+      const fid = el.dataset.fieldId;
+      if      (el.type === 'checkbox') values[fid] = el.checked;
+      else if (el.type === 'number')   values[fid] = el.value !== '' ? Number(el.value) : null;
+      else                             values[fid] = el.value;
+    });
+  }
+
+  /* リクエストを構築 */
+  let url = api.url || '';
+  const bodyObj = {}, qp = new URLSearchParams();
+  (api.paramMapping || []).forEach(m => {
+    const val = values[m.fieldId] ?? '';
+    if      (m.in === 'path')  url = url.replace('{' + m.param + '}', encodeURIComponent(String(val)));
+    else if (m.in === 'query') qp.set(m.param, String(val));
+    else                       bodyObj[m.param] = val;
+  });
+  const qStr = qp.toString();
+  if (qStr) url += (url.includes('?') ? '&' : '?') + qStr;
+
+  const method  = (api.method || 'GET').toUpperCase();
+  const hasBody = ['POST', 'PUT', 'PATCH'].includes(method);
+  const headers = { 'Content-Type': 'application/json', ...(api.headers || {}) };
+  const fetchOpts = { method, headers };
+  if (hasBody && Object.keys(bodyObj).length) fetchOpts.body = JSON.stringify(bodyObj);
+
+  const reqInfo = { method, url, headers, body: hasBody && Object.keys(bodyObj).length ? bodyObj : undefined };
+  renderApiModal(action.label, reqInfo, null, true);
+  document.getElementById('api-modal').style.display = 'flex';
+
+  try {
+    const res  = await fetch(url, fetchOpts);
+    const text = await res.text();
+    let body;
+    try { body = JSON.parse(text); } catch { body = text; }
+    renderApiModal(action.label, reqInfo, { status: res.status, ok: res.ok, body }, false);
+  } catch(e) {
+    renderApiModal(action.label, reqInfo, { error: e.message }, false);
+  }
+}
+
+function renderApiModal(label, req, res, loading) {
+  document.getElementById('api-modal-title').textContent = label + ' — API呼び出し';
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const block = (title, content) =>
+    `<div><div style="font-size:10px;color:#64748b;letter-spacing:0.08em;margin-bottom:6px;font-weight:500;">${title}</div>
+     <div style="background:#141c26;border:1px solid #1e2d3d;border-radius:6px;padding:10px 12px;font-family:'Courier New',monospace;font-size:11px;line-height:1.65;">${content}</div></div>`;
+
+  const reqContent = `<span style="color:#fbbf24;">${req.method}</span> <span style="color:#4ade80;">${esc(req.url)}</span>`
+    + (req.body ? `<br><br><span style="color:#94a3b8;">Body:</span><br><span style="color:#e2e8f0;white-space:pre-wrap;">${esc(JSON.stringify(req.body,null,2))}</span>` : '');
+
+  let resHtml = '';
+  if (loading) {
+    resHtml = `<div><div style="font-size:10px;color:#64748b;letter-spacing:0.08em;margin-bottom:6px;font-weight:500;">RESPONSE</div><div style="padding:12px;font-size:12px;color:#64748b;">⏳ 送信中...</div></div>`;
+  } else if (res?.error) {
+    resHtml = block('RESPONSE', `<span style="color:#f87171;">エラー: ${esc(res.error)}</span>`);
+  } else if (res) {
+    const sc     = res.ok ? '#4ade80' : '#f87171';
+    const bodyStr = typeof res.body === 'object' ? JSON.stringify(res.body,null,2) : String(res.body||'');
+    resHtml = block('RESPONSE', `<span style="color:${sc};">HTTP ${res.status}</span>`
+      + (bodyStr ? `<br><br><span style="color:#e2e8f0;white-space:pre-wrap;">${esc(bodyStr)}</span>` : ''));
+  }
+
+  document.getElementById('api-modal-body').innerHTML = block('REQUEST', reqContent) + resHtml;
+}
+
+function closeApiModal() { document.getElementById('api-modal').style.display = 'none'; }
 
 /* ── API Key ── */
 function saveApiKey() {
@@ -502,7 +721,7 @@ async function handleAiGenerate() {
       body: JSON.stringify({
         model: 'claude-opus-4-5',
         max_tokens: 1500,
-        system: 'Web業務画面の定義JSONを生成する。以下スキーマのJSONのみ返す。説明文やコードブロック記法は不要。\n{"id":"string","title":"string","dataFields":[{"id":"string","label":"string","type":"string|number|date|boolean","length":10,"value":"any"}],"sampleData":[{"fieldId":"value"}],"screens":[{"id":"search","label":"検索画面","type":"search","searchFields":[{"id":"string","label":"string","type":"text|select|date|number|checkbox","dataFieldId":"string","placeholder":"string","options":["string"]}],"grid":{"columns":[{"id":"string","label":"string","dataFieldId":"string"}]},"pagination":{"pageSize":10,"totalItems":100}},{"id":"detail","label":"詳細・編集画面","type":"form","fields":[{"id":"string","label":"string","type":"text|textarea|select|date|number|checkbox","required":true,"dataFieldId":"string","options":["string"],"min":0,"max":100,"step":1,"unit":"string","defaultChecked":false}],"actions":[{"id":"string","label":"string","type":"primary|secondary|danger"}]}]}',
+        system: 'Web業務画面の定義JSONを生成する。以下スキーマのJSONのみ返す。説明文やコードブロック記法は不要。\n{"id":"string","title":"string","dataFields":[{"id":"string","label":"string","type":"string|number|date|boolean","length":10,"value":"any"}],"sampleData":[{"fieldId":"value"}],"screens":[{"id":"search","label":"検索画面","type":"search","searchFields":[{"id":"string","label":"string","type":"text|select|date|number|checkbox","dataFieldId":"string","placeholder":"string","options":["string"]}],"grid":{"columns":[{"id":"string","label":"string","dataFieldId":"string"}]},"pagination":{"pageSize":10,"totalItems":100}},{"id":"detail","label":"詳細・編集画面","type":"form","fields":[{"id":"string","label":"string","type":"text|textarea|select|date|number|checkbox","required":true,"dataFieldId":"string","options":["string"],"min":0,"max":100,"step":1,"unit":"string","defaultChecked":false}],"actions":[{"id":"string","label":"string","type":"primary|secondary|danger","api":{"method":"GET|POST|PUT|PATCH|DELETE","url":"string","headers":{},"paramMapping":[{"param":"string","fieldId":"string","in":"body|query|path"}]}}]}]}',
         messages: [{ role: 'user', content: prompt }]
       })
     });
